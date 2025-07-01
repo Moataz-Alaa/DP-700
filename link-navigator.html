@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Link Navigator</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background: #f7f9fb; }
+    header { background: #1976d2; color: #fff; padding: 1em 2em; display: flex; align-items: center; justify-content: space-between; }
+    header h1 { margin: 0; font-size: 1.5em; }
+    #controls { display: flex; gap: 1em; align-items: center; }
+    #main { max-width: 900px; margin: 2em auto; background: #fff; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.07); padding: 2em; }
+    .topic { margin-bottom: 2em; border-bottom: 1px solid #eee; }
+    .topic-header { cursor: pointer; font-size: 1.2em; font-weight: bold; margin-bottom: 0.5em; display: flex; align-items: center; }
+    .topic-header .arrow { margin-right: 0.5em; transition: transform 0.2s; }
+    .topic.collapsed .topic-links { display: none; }
+    .topic.collapsed .topic-header .arrow { transform: rotate(-90deg); }
+    .topic-links { margin-left: 1.5em; }
+    .link-item { display: flex; align-items: center; gap: 0.5em; margin-bottom: 0.5em; }
+    .link-item.visited a { color: #aaa; text-decoration: line-through; }
+    .link-item input[type="checkbox"] { accent-color: #1976d2; }
+    .tags { display: flex; gap: 0.3em; flex-wrap: wrap; margin-left: 1em; }
+    .tag { background: #e3f2fd; color: #1976d2; border-radius: 4px; padding: 0 6px; font-size: 0.9em; display: flex; align-items: center; }
+    .tag .remove-tag { margin-left: 3px; cursor: pointer; font-weight: bold; }
+    .add-tag-input { width: 70px; font-size: 0.95em; margin-left: 0.5em; }
+    .seq-controls { display: flex; gap: 1em; margin: 1em 0; justify-content: center; }
+    button { background: #1976d2; color: #fff; border: none; border-radius: 5px; padding: 0.5em 1.2em; font-size: 1em; cursor: pointer; transition: background 0.2s; }
+    button:disabled { background: #b0bec5; cursor: not-allowed; }
+    button:hover:not(:disabled) { background: #1565c0; }
+    @media (max-width: 600px) {
+      #main { padding: 1em; }
+      header { flex-direction: column; gap: 0.5em; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Link Navigator</h1>
+    <div id="controls">
+      <input type="file" id="file-input" accept=".txt">
+      <button id="clear-progress">Clear Progress</button>
+    </div>
+  </header>
+  <div id="main">
+    <div class="seq-controls">
+      <button id="prev-link">Previous</button>
+      <button id="next-link">Next</button>
+    </div>
+    <div id="links-list"></div>
+  </div>
+  <script>
+    // --- State Management ---
+    let topics = [];
+    let flatLinks = [];
+    let state = { visited: {}, tags: {}, collapsed: {} };
+    const STORAGE_KEY = 'linkNavigatorStateV2';
+
+    function saveState() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    }
+    function loadState() {
+      const s = localStorage.getItem(STORAGE_KEY);
+      if (s) state = { ...state, ...JSON.parse(s) };
+    }
+    function clearState() {
+      localStorage.removeItem(STORAGE_KEY);
+      state = { visited: {}, tags: {}, collapsed: {} };
+      renderLinks();
+    }
+
+    // --- Parsing ---
+    function parseLinks(text) {
+      topics = [];
+      flatLinks = [];
+      let currentTopic = null;
+      text.split(/\r?\n/).forEach(line => {
+        if (/^\s*$/.test(line)) return;
+        if (/^Topic \d+:/.test(line)) {
+          currentTopic = { name: line.trim(), links: [] };
+          topics.push(currentTopic);
+        } else if (/^\s*-\s+/.test(line)) {
+          const link = line.replace(/^\s*-\s+/, '').trim();
+          if (link && currentTopic) {
+            const linkObj = { url: link, topic: currentTopic.name };
+            currentTopic.links.push(linkObj);
+            flatLinks.push(linkObj);
+          }
+        }
+      });
+    }
+
+    // --- Rendering ---
+    function renderLinks() {
+      const list = document.getElementById('links-list');
+      list.innerHTML = '';
+      topics.forEach((topic, tIdx) => {
+        const topicDiv = document.createElement('div');
+        topicDiv.className = 'topic' + (state.collapsed[topic.name] ? ' collapsed' : '');
+        // Topic header
+        const header = document.createElement('div');
+        header.className = 'topic-header';
+        const arrow = document.createElement('span');
+        arrow.className = 'arrow';
+        arrow.textContent = '▶';
+        header.appendChild(arrow);
+        header.appendChild(document.createTextNode(topic.name));
+        header.onclick = () => {
+          state.collapsed[topic.name] = !state.collapsed[topic.name];
+          saveState();
+          renderLinks();
+        };
+        topicDiv.appendChild(header);
+        // Links
+        const linksDiv = document.createElement('div');
+        linksDiv.className = 'topic-links';
+        topic.links.forEach((linkObj, lIdx) => {
+          const div = document.createElement('div');
+          div.className = 'link-item' + (state.visited[linkObj.url] ? ' visited' : '');
+          // Checkbox
+          const checkbox = document.createElement('input');
+          checkbox.type = 'checkbox';
+          checkbox.checked = !!state.visited[linkObj.url];
+          checkbox.onchange = () => {
+            state.visited[linkObj.url] = checkbox.checked;
+            saveState();
+            renderLinks();
+          };
+          div.appendChild(checkbox);
+          // Link
+          const a = document.createElement('a');
+          a.href = linkObj.url;
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
+          a.textContent = linkObj.url;
+          a.onclick = () => {
+            state.visited[linkObj.url] = true;
+            saveState();
+            renderLinks();
+          };
+          div.appendChild(a);
+          // Tags
+          const tagsDiv = document.createElement('div');
+          tagsDiv.className = 'tags';
+          (state.tags[linkObj.url] || []).forEach((tag, tagIdx) => {
+            const tagSpan = document.createElement('span');
+            tagSpan.className = 'tag';
+            tagSpan.textContent = tag;
+            const removeBtn = document.createElement('span');
+            removeBtn.className = 'remove-tag';
+            removeBtn.textContent = '×';
+            removeBtn.onclick = (e) => {
+              e.stopPropagation();
+              state.tags[linkObj.url].splice(tagIdx, 1);
+              if (state.tags[linkObj.url].length === 0) delete state.tags[linkObj.url];
+              saveState();
+              renderLinks();
+            };
+            tagSpan.appendChild(removeBtn);
+            tagsDiv.appendChild(tagSpan);
+          });
+          // Add tag input
+          const addTagInput = document.createElement('input');
+          addTagInput.type = 'text';
+          addTagInput.placeholder = 'Add tag';
+          addTagInput.className = 'add-tag-input';
+          addTagInput.onkeydown = (e) => {
+            if (e.key === 'Enter' && addTagInput.value.trim()) {
+              if (!state.tags[linkObj.url]) state.tags[linkObj.url] = [];
+              state.tags[linkObj.url].push(addTagInput.value.trim());
+              addTagInput.value = '';
+              saveState();
+              renderLinks();
+            }
+          };
+          tagsDiv.appendChild(addTagInput);
+          div.appendChild(tagsDiv);
+          linksDiv.appendChild(div);
+        });
+        topicDiv.appendChild(linksDiv);
+        list.appendChild(topicDiv);
+      });
+    }
+
+    // --- Sequential Viewing ---
+    function getFirstUnvisitedIdx() {
+      return flatLinks.findIndex(l => !state.visited[l.url]);
+    }
+    function getCurrentIdx() {
+      // Find the last visited link, or first unvisited
+      let idx = flatLinks.findIndex(l => state.visited[l.url] && state.lastVisited === l.url);
+      if (idx === -1) idx = getFirstUnvisitedIdx();
+      return idx;
+    }
+    function openLinkAt(idx) {
+      if (idx < 0 || idx >= flatLinks.length) return;
+      const link = flatLinks[idx];
+      window.open(link.url, '_blank');
+      state.visited[link.url] = true;
+      state.lastVisited = link.url;
+      saveState();
+      renderLinks();
+    }
+    function updateSeqButtons() {
+      const prevBtn = document.getElementById('prev-link');
+      const nextBtn = document.getElementById('next-link');
+      const idx = getCurrentIdx();
+      prevBtn.disabled = idx <= 0;
+      nextBtn.disabled = idx === -1 || idx >= flatLinks.length - 1;
+    }
+    document.getElementById('prev-link').onclick = () => {
+      const idx = getCurrentIdx();
+      if (idx > 0) openLinkAt(idx - 1);
+    };
+    document.getElementById('next-link').onclick = () => {
+      const idx = getCurrentIdx();
+      if (idx !== -1 && idx < flatLinks.length - 1) openLinkAt(idx + 1);
+    };
+
+    // --- File Input ---
+    document.getElementById('file-input').addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        parseLinks(event.target.result);
+        saveState();
+        renderLinks();
+        updateSeqButtons();
+      };
+      reader.readAsText(file);
+    });
+
+    // --- Clear Progress ---
+    document.getElementById('clear-progress').onclick = () => {
+      if (confirm('Clear all progress and tags?')) clearState();
+    };
+
+    // --- Initial Load ---
+    loadState();
+    renderLinks();
+    updateSeqButtons();
+  </script>
+</body>
+</html> 
